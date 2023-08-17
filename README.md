@@ -13,28 +13,53 @@ This project uses [large pages](https://learn.microsoft.com/en-us/windows/win32/
 ## Sample output
 
 ```console
+RAM Info:
+ * Channels: 2
+ * Speed [MT/s]: 3200
+ * Theoretical bandwidth: 51.2GB/s
+
+CPU Info:
+ * Physical cores: 8
+ * Logical cores: 16
+ * Hyperthreading: true
+
 Allocating non-paged (locked) memory of size 2147483648 bytes with system decided page sizes...
-Memory aligned to 1073741824 bytes: data pointer = 0x27340000000
+Memory aligned to 1073741824 bytes: data pointer = 0x1bb80000000
 Allocating array made of 268435456 (2048 MB) 64-bit words...
 Initializing array...
-Calculating time for sequential access...
-Time to sum up the array 16 times = 1.203s , calculated bandwidth = 28561.7MB/s
-Calculating time for random access...
---------------------------------------------------------------------------
-- # of lanes --- time (s) --- bandwidth --- speedup --- ns/hit --- % eff -
---------------------------------------------------------------------------
-           1       26.575          80.8         1.0       99.0       0.3
-           2       13.311         161.3         2.0       49.6       0.6
-           4        6.500         330.4         4.1       24.2       1.2
-           8        3.224         666.1         8.2       12.0       2.3
-          16        1.703        1261.0        15.6        6.3       4.4
-          32        1.246        1723.5        21.3        4.6       6.0
-          64        1.224        1754.5        21.7        4.6       6.1
+Verifying sequential and random access sums...
+
+Calculating time for sequential access (64 rounds)...
+--------------------------------------------------------------------------------
+- # of threads --- time (s) --- bandwidth --- speedup --- ns/hit --- % eff max -
+--------------------------------------------------------------------------------
+             1        4.926       27900.7        1.00      0.287          54.5
+             2        3.398       40447.0        1.45      0.198          79.0
+             4        3.103       44292.3        1.59      0.181          86.5
+             8        3.251       42275.9        1.52      0.189          82.6
+            16        3.259       42172.1        1.51      0.190          82.4
+            32        3.325       41335.0        1.48      0.194          80.7
+            64        3.313       41484.7        1.49      0.193          81.0
+
+Calculating time for random access (single round)...
+-----------------------------------------------------------------------------------------------------
+- # of threads --- lanes per thread --- time (s) --- bandwidth --- speedup --- ns/hit --- % eff max -
+-----------------------------------------------------------------------------------------------------
+             1                    1       26.696          80.4        1.00       99.5           0.2
+             1                    2       13.375         160.6        2.00       49.8           0.4
+             1                    4        6.566         327.1        4.07       24.5           0.7
+             1                    8        3.242         662.4        8.23       12.1           1.5
+             1                   16        1.715        1252.2       15.57        6.4           2.8
+             1                   32        1.246        1723.5       21.43        4.6           3.9
+             1                   64        1.264        1699.0       21.12        4.7           3.8
+
+Total benchmark time: 245.882s
 ```
 
 ## Changelog
 
-* **v0.0.1 - 16.08.2022:** Initial version
+* **v0.0.2 - 17.08.2023:** Added system info, improved sequential access benchmark
+* **v0.0.1 - 16.08.2023:** Initial version
 
 ## Code statistics (via [gocloc](https://github.com/hhatto/gocloc))
 
@@ -43,10 +68,10 @@ $> gocloc /exclude-ext json,txt .
 -------------------------------------------------------------------------------
 Language                     files          blank        comment           code
 -------------------------------------------------------------------------------
-C++ Header                       2             45             15            284
-C++                              1             27              7            272
-Markdown                         1             11              0             41
+C++                              1             49             16            246
+C++ Header                       3             46             27            180
+Markdown                         1             16              0             61
 -------------------------------------------------------------------------------
-TOTAL                            4             83             22            597
+TOTAL                            5            111             43            487
 -------------------------------------------------------------------------------
 ```

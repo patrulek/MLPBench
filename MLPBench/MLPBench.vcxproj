@@ -136,6 +136,8 @@
     <ClCompile Include="MLPBench.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="memoryinfo.hpp" />
+    <ClInclude Include="multithreading.hpp" />
     <ClInclude Include="virtualmem.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
