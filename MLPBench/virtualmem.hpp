@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 #include <expected>
+#include <type_traits>
 
 #include <bit>
 
@@ -33,7 +34,7 @@ struct PagedMemory {
     uint64_t alignment;
 };
 
-using win_error_t = DWORD;
+using win_error_t = std::invoke_result_t<decltype(GetLastError)>;
 
 template<typename T, size_t Buffer_Size>
 std::expected<PagedMemory<T>, win_error_t> allocWithLargePages() {
