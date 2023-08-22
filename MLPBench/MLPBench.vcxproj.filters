@@ -23,7 +23,7 @@
     <ClInclude Include="virtualmem.hpp">
       <Filter>Source Files</Filter>
     </ClInclude>
-    <ClInclude Include="multithreading.hpp">
+    <ClInclude Include="cpuinfo.hpp">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="memoryinfo.hpp">

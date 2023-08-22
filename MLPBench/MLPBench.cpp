@@ -8,19 +8,22 @@
 #include <thread>
 
 #include "memoryinfo.hpp"
-#include "multithreading.hpp"
+#include "cpuinfo.hpp"
 #include "virtualmem.hpp"
 
 constexpr size_t Memory_Size{ 2'147'483'648 }; // 2GB
 constexpr size_t Elem_Count{ Memory_Size / sizeof(uint64_t) };
 constexpr size_t Min_Elem{ 1 };
 constexpr size_t Max_Elem{ Elem_Count - 1 };
+constexpr uint32_t page_size{ 4096 };
 constexpr uint64_t Array_Sum{ (Min_Elem + Max_Elem) / 2 * (Elem_Count - 1) };
 double bwLane1{ 0 };
 double bwThreads1{ 0 };
 double bwLinear{ 0 };
 
-template <uint64_t Threads = 1, uint64_t Lanes = 1>
+using aligned_uint64_t = uint64_t alignas(page_size);
+
+template <uint64_t Threads = 1, uint64_t Lanes = 1, bool Huge_Pages = false>
 void multithreadedRandomAccessSum(std::array<uint64_t, 65>& sums, std::span<uint64_t> memory) {
     static_assert(Threads == 1 || (Threads >= 2 && Threads <= 64 && Threads % 2 == 0));
     static_assert(Lanes == 1 || (Lanes >= 2 && Lanes <= 64 && Lanes % 2 == 0));
@@ -149,14 +152,14 @@ void multithreadedRandomAccessSum(std::array<uint64_t, 65>& sums, std::span<uint
     const auto end_time = std::chrono::high_resolution_clock::now();
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() / 1000.0;
     const auto bandwidth = Memory_Size / elapsed / 1'000'000.0;
-    if (Threads == 1 && Lanes == 1) {
+    if (Threads == 1 && Lanes == 1 && bwLane1 == 0.0) {
         bwLane1 = bandwidth;
     }
     const auto speedup = bandwidth / bwLane1;
     const auto nshit = 1'000'000'000 * elapsed / Elem_Count;
     const auto eff = 100.0 * bandwidth / bwLinear;
 
-    std::println("{:14d}     {:16d}     {:8.3f}     {:9.1f}     {:7.2f}     {:6.1f}     {:9.1f}", Threads, Lanes, elapsed, bandwidth, speedup, nshit, eff);
+    std::println("{:>12s}     {:12d}     {:16d}     {:8.3f}     {:9.1f}     {:7.2f}     {:6.1f}     {:9.1f}", Huge_Pages, Threads, Lanes, elapsed, bandwidth, speedup, nshit, eff);
 
     for (uint32_t t = 0; t < Threads; ++t) {
         for (uint32_t l = 1; l <= Lanes; ++l) {
@@ -190,7 +193,7 @@ void calculateSum(uint64_t& total_sum, const std::span<uint64_t> data) {
     total_sum += sum;
 }
 
-template<uint32_t Rounds, uint32_t Threads = 1>
+template<uint32_t Rounds, uint32_t Threads = 1, bool Huge_Pages = false>
 uint64_t sequentialAccessSum(std::span<uint64_t, Elem_Count> memory) {
     static_assert(Threads == 1 || (Threads >= 2 && Threads <= 64 && Threads % 2 == 0));
 
@@ -220,14 +223,19 @@ uint64_t sequentialAccessSum(std::span<uint64_t, Elem_Count> memory) {
     auto bandwidth{ Total_Bytes / elapsed / 1'000'000.0 };
     bwLinear = std::max<double>(bandwidth, bwLinear);
 
-    if (Threads == 1) {
+    if (Threads == 1 && bwThreads1 == 0.0) {
         bwThreads1 = bandwidth;
     }
     const auto speedup = bandwidth / bwThreads1;
     const auto nshit = 1'000'000'000 * elapsed / Elem_Count / Rounds;
-    const auto eff = 100.0 * bandwidth / (mem_info.bandwidth * 1'000);
 
-    std::println("{:14d}     {:8.3f}     {:9.1f}     {:7.2f}     {:6.3f}     {:9.1f}", Threads, elapsed, bandwidth, speedup, nshit, eff);
+    if (mem_info.bandwidth > 0.0) {
+        const auto eff = 100.0 * bandwidth / (mem_info.bandwidth * 1'000);
+        std::println("{:>12s}     {:14d}     {:8.3f}     {:9.1f}     {:7.2f}     {:6.3f}     {:9.1f}", Huge_Pages, Threads, elapsed, bandwidth, speedup, nshit, eff);
+    } else {
+        std::println("{:>12s}     {:14d}     {:8.3f}     {:9.1f}     {:7.2f}     {:6.3f}     {:>9s}", Huge_Pages, Threads, elapsed, bandwidth, speedup, nshit, "N/A");
+    }
+
     return sum;
 }
 
@@ -242,9 +250,9 @@ int main()
         std::println("RAM Info:\n * Channels: {:d}\n * Speed [MT/s]: {:d}\n * Theoretical bandwidth: {:.1f}GB/s\n", mem_info.channels, mem_info.speed, mem_info.bandwidth);
     }
 
-    std::println("CPU Info:\n * Physical cores: {:d}\n * Logical cores: {:d}\n * Hyperthreading: {:s}\n", cpu_info.cores, cpu_info.threads, cpu_info.htt);
+    std::println("CPU Info ({}):\n * Physical cores: {:d}\n * Logical cores: {:d}\n * Hyperthreading: {:s}\n", cpu_info.model, cpu_info.cores, cpu_info.threads, cpu_info.htt);
 
-    // Allocate virtual memory
+    // Allocate non-paged memory
     std::println("Allocating non-paged (locked) memory of size {:d} bytes with system decided page sizes...", Memory_Size);
     auto data{ allocWithLargePages<uint64_t, Memory_Size>() };
     if (!data.has_value()) {
@@ -252,41 +260,55 @@ int main()
         std::exit(-1);
     }
 
-    std::println("Memory aligned to {:d} bytes: data pointer = 0x{:x}", data.value().alignment, reinterpret_cast<uintptr_t>(data.value().ptr));
-
-    std::span<uint64_t, Elem_Count> data_span(data.value().ptr, data.value().size);
-
-    // Allocate aligned memory
-    std::println("Allocating array made of {:d} ({:d} MB) 64-bit words...", Elem_Count, Memory_Size / 1024 / 1024);
-    std::span<uint64_t, Elem_Count> memory{ data_span };
-    const auto ptr0{ reinterpret_cast<uintptr_t>(&memory[0]) };
-    const auto ptr1{ reinterpret_cast<uintptr_t>(&memory[1]) };
+    std::println("Memory aligned to {:d} bytes: data pointer = 0x{:x}\n", data.value().alignment, reinterpret_cast<uintptr_t>(data.value().ptr));
+    std::span<uint64_t, Elem_Count> non_paged_memory{ data.value().ptr, data.value().size };
+    auto ptr0{ reinterpret_cast<uintptr_t>(data.value().ptr) };
+    auto ptr1{ reinterpret_cast<uintptr_t>(data.value().ptr + 1) };
 
     if (ptr0 % data.value().alignment != 0 || ptr1 % data.value().alignment != sizeof(uint64_t)) {
-        std::println("Memory incorrectly aligned: &[0] = 0x{:x}, &[1] = 0x{:x}", ptr0, ptr1);
+        std::println("Non-paged memory incorrectly aligned: &[0] = 0x{:x}, &[1] = 0x{:x}", ptr0, ptr1);
         std::exit(-1);
     }
 
-    // Initialize and shuffle
-    std::println("Initializing array...");
+    // Allocate paged memory
+    std::println("Allocating paged memory of size {:d} bytes with default (4KB size) pages", Memory_Size);
+    std::vector<aligned_uint64_t> paged_data;
+    paged_data.resize(Elem_Count);
+
+    std::span<uint64_t, Elem_Count> paged_memory{ paged_data };
+    ptr0 = reinterpret_cast<uintptr_t>(&paged_data[0]);
+    ptr1 = reinterpret_cast<uintptr_t>(&paged_data[1]);
+
+    if (!(ptr0 % page_size == 0 && ptr0 % data.value().alignment != 0) || ptr1 % page_size != sizeof(uint64_t)) {
+        std::println("Paged memory incorrectly aligned: &[0] = 0x{:x}, &[1] = 0x{:x}", ptr0, ptr1);
+        std::exit(-1);
+    }
+
+    std::println("Memory aligned to {:d} bytes: data pointer = 0x{:x}\n", page_size, reinterpret_cast<uintptr_t>(&paged_data[0]));
+
+    // Initialize arrays
+    std::println("Initializing array made of {:d} ({:d} MB) 64-bit words...", Elem_Count, Memory_Size / 1024 / 1024);
 
     for (int i = 0; i < Elem_Count; ++i) {
-        memory[i] = i;
+        non_paged_memory[i] = i;
+        paged_memory[i] = i;
     }
 
-    sattolo(memory);
+    sattolo(non_paged_memory);
+    sattolo(paged_memory);
 
     // Veryfing data
-    std::println("Verifying sequential and random access sums...");
+    std::println("Verifying sequential/random access and paged/non-paged access sums...");
     uint64_t v{ 12312 };
-    std::array<uint64_t, 2>test_sum{};
+    std::array<uint64_t, 3>test_sum{};
     for (uint32_t i = 0; i < Elem_Count; ++i) {
-        test_sum[0] += memory[i];
-        test_sum[1] += memory[v];
-        v = memory[v];
+        test_sum[0] += non_paged_memory[i];
+        test_sum[1] += non_paged_memory[v];
+        test_sum[2] += paged_memory[i];
+        v = non_paged_memory[v];
     }
-    if (test_sum[0] != test_sum[1]) {
-        std::println("Sequential and random access sum mismatch: {:d} != {:d}", test_sum[0], test_sum[1]);
+    if (test_sum[0] != test_sum[1] || test_sum[0] != test_sum[2]) {
+        std::println("Sequential and random access or paged and non-paged sum mismatch: {:d} != {:d} or {:d} != {:d}", test_sum[0], test_sum[1], test_sum[0], test_sum[2]);
         std::exit(-1);
     }
 
@@ -294,93 +316,164 @@ int main()
     constexpr uint32_t Rounds{ 64 };
     constexpr uint32_t Max_Lanes{ 64 };
     std::println("\nCalculating time for sequential access ({:d} rounds)...", Rounds);
-    std::println("--------------------------------------------------------------------------------");
-    std::println("- # of threads --- time (s) --- bandwidth --- speedup --- ns/hit --- % eff max -");
-    std::println("--------------------------------------------------------------------------------");
+    std::println("-----------------------------------------------------------------------------------------------");
+    std::println("- huge pages --- # of threads --- time (s) --- bandwidth --- speedup --- ns/hit --- % eff max -");
+    std::println("-----------------------------------------------------------------------------------------------");
 
     std::array<uint64_t, Max_Lanes + 1> sums{};
-    sums[1] = sequentialAccessSum<Rounds, 1>(memory);
-    sums[2] = sequentialAccessSum<Rounds, 2>(memory);
-    sums[4] = sequentialAccessSum<Rounds, 4>(memory);
-    sums[8] = sequentialAccessSum<Rounds, 8>(memory);
-    sums[16] = sequentialAccessSum<Rounds, 16>(memory);
-    sums[32] = sequentialAccessSum<Rounds, 32>(memory);
-    sums[64] = sequentialAccessSum<Rounds, 64>(memory);
+
+    sums[1] = sequentialAccessSum<Rounds, 1, false>(paged_memory);
+    sums[2] = sequentialAccessSum<Rounds, 2, false>(paged_memory);
+    sums[4] = sequentialAccessSum<Rounds, 4, false>(paged_memory);
+    sums[8] = sequentialAccessSum<Rounds, 8, false>(paged_memory);
+    sums[16] = sequentialAccessSum<Rounds, 16, false>(paged_memory);
+    sums[32] = sequentialAccessSum<Rounds, 32, false>(paged_memory);
+
+    std::println("= ------------------------------------------------------------------------------------------- =");
+
+    sums[1] = sequentialAccessSum<Rounds, 1, true>(non_paged_memory);
+    sums[2] = sequentialAccessSum<Rounds, 2, true>(non_paged_memory);
+    sums[4] = sequentialAccessSum<Rounds, 4, true>(non_paged_memory);
+    sums[8] = sequentialAccessSum<Rounds, 8, true>(non_paged_memory);
+    sums[16] = sequentialAccessSum<Rounds, 16, true>(non_paged_memory);
+    sums[32] = sequentialAccessSum<Rounds, 32, true>(non_paged_memory);
 
     // Calculating bandwidth for random access
     std::println("\nCalculating time for random access (single round)...");
-    std::println("-----------------------------------------------------------------------------------------------------");
-    std::println("- # of threads --- lanes per thread --- time (s) --- bandwidth --- speedup --- ns/hit --- % eff max -");
-    std::println("-----------------------------------------------------------------------------------------------------");
+    std::println("--------------------------------------------------------------------------------------------------------------------");
+    std::println("- huge pages --- # of threads --- lanes per thread --- time (s) --- bandwidth --- speedup --- ns/hit --- % eff seq -");
+    std::println("--------------------------------------------------------------------------------------------------------------------");
 
     // one thread lanes
-    multithreadedRandomAccessSum<1, 1>(sums, memory);
-    multithreadedRandomAccessSum<1, 2>(sums, memory);
-    multithreadedRandomAccessSum<1, 4>(sums, memory);
-    multithreadedRandomAccessSum<1, 8>(sums, memory);
-    multithreadedRandomAccessSum<1, 16>(sums, memory);
-    multithreadedRandomAccessSum<1, 32>(sums, memory);
-    multithreadedRandomAccessSum<1, 64>(sums, memory);
-    std::println("= ------------------------------------------------------------------------------------------------- =");
+    multithreadedRandomAccessSum<1, 1, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<1, 2, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<1, 4, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<1, 8, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<1, 16, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<1, 32, false>(sums, paged_memory);
+
+    std::println("= ---------------------------------------------------------------------------------------------------------------- =");
 
     // two thread lanes
-    multithreadedRandomAccessSum<2, 1>(sums, memory);
-    multithreadedRandomAccessSum<2, 2>(sums, memory);
-    multithreadedRandomAccessSum<2, 4>(sums, memory);
-    multithreadedRandomAccessSum<2, 8>(sums, memory);
-    multithreadedRandomAccessSum<2, 16>(sums, memory);
-    multithreadedRandomAccessSum<2, 32>(sums, memory);
-    multithreadedRandomAccessSum<2, 64>(sums, memory);
-    std::println("= ------------------------------------------------------------------------------------------------- =");
-    
+    multithreadedRandomAccessSum<2, 1, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<2, 2, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<2, 4, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<2, 8, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<2, 16, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<2, 32, false>(sums, paged_memory);
+    std::println("= ---------------------------------------------------------------------------------------------------------------- =");
+
     // four thread lanes
-    multithreadedRandomAccessSum<4, 1>(sums, memory);
-    multithreadedRandomAccessSum<4, 2>(sums, memory);
-    multithreadedRandomAccessSum<4, 4>(sums, memory);
-    multithreadedRandomAccessSum<4, 8>(sums, memory);
-    multithreadedRandomAccessSum<4, 16>(sums, memory);
-    multithreadedRandomAccessSum<4, 32>(sums, memory);
-    multithreadedRandomAccessSum<4, 64>(sums, memory);
-    std::println("= ------------------------------------------------------------------------------------------------- =");
+    multithreadedRandomAccessSum<4, 1, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<4, 2, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<4, 4, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<4, 8, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<4, 16, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<4, 32, false>(sums, paged_memory);
+    std::println("= ---------------------------------------------------------------------------------------------------------------- =");
 
     // eight thread lanes
-    multithreadedRandomAccessSum<8, 1>(sums, memory);
-    multithreadedRandomAccessSum<8, 2>(sums, memory);
-    multithreadedRandomAccessSum<8, 4>(sums, memory);
-    multithreadedRandomAccessSum<8, 8>(sums, memory);
-    multithreadedRandomAccessSum<8, 16>(sums, memory);
-    multithreadedRandomAccessSum<8, 32>(sums, memory);
-    multithreadedRandomAccessSum<8, 64>(sums, memory);
-    std::println("= ------------------------------------------------------------------------------------------------- =");
+    multithreadedRandomAccessSum<8, 1, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<8, 2, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<8, 4, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<8, 8, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<8, 16, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<8, 32, false>(sums, paged_memory);
+    std::println("= ---------------------------------------------------------------------------------------------------------------- =");
 
     // sixteen thread lanes
-    multithreadedRandomAccessSum<16, 1>(sums, memory);
-    multithreadedRandomAccessSum<16, 2>(sums, memory);
-    multithreadedRandomAccessSum<16, 4>(sums, memory);
-    multithreadedRandomAccessSum<16, 8>(sums, memory);
-    multithreadedRandomAccessSum<16, 16>(sums, memory);
-    multithreadedRandomAccessSum<16, 32>(sums, memory);
-    multithreadedRandomAccessSum<16, 64>(sums, memory);
-    std::println("= ------------------------------------------------------------------------------------------------- =");
+    multithreadedRandomAccessSum<16, 1, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<16, 2, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<16, 4, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<16, 8, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<16, 16, false>(sums, paged_memory);
+    multithreadedRandomAccessSum<16, 32, false>(sums, paged_memory);
+    std::println("= ---------------------------------------------------------------------------------------------------------------- =");
 
-    // thirty-two thread lanes
-    multithreadedRandomAccessSum<32, 1>(sums, memory);
-    multithreadedRandomAccessSum<32, 2>(sums, memory);
-    multithreadedRandomAccessSum<32, 4>(sums, memory);
-    multithreadedRandomAccessSum<32, 8>(sums, memory);
-    multithreadedRandomAccessSum<32, 16>(sums, memory);
-    multithreadedRandomAccessSum<32, 32>(sums, memory);
-    multithreadedRandomAccessSum<32, 64>(sums, memory);
-    std::println("= ------------------------------------------------------------------------------------------------- =");
+    if (cpu_info.threads > 16) {
+        // thirty-two thread lanes
+        multithreadedRandomAccessSum<32, 1, false>(sums, paged_memory);
+        multithreadedRandomAccessSum<32, 2, false>(sums, paged_memory);
+        multithreadedRandomAccessSum<32, 4, false>(sums, paged_memory);
+        multithreadedRandomAccessSum<32, 8, false>(sums, paged_memory);
+        multithreadedRandomAccessSum<32, 16, false>(sums, paged_memory);
+        multithreadedRandomAccessSum<32, 32, false>(sums, paged_memory);
+        std::println("= ---------------------------------------------------------------------------------------------------------------- =");
 
-    // sixty-four thread lanes
-    multithreadedRandomAccessSum<64, 1>(sums, memory);
-    multithreadedRandomAccessSum<64, 2>(sums, memory);
-    multithreadedRandomAccessSum<64, 4>(sums, memory);
-    multithreadedRandomAccessSum<64, 8>(sums, memory);
-    multithreadedRandomAccessSum<64, 16>(sums, memory);
-    multithreadedRandomAccessSum<64, 32>(sums, memory);
-    multithreadedRandomAccessSum<64, 64>(sums, memory);
+        // sixty-four thread lanes
+        multithreadedRandomAccessSum<64, 1, false>(sums, paged_memory);
+        multithreadedRandomAccessSum<64, 2, false>(sums, paged_memory);
+        multithreadedRandomAccessSum<64, 4, false>(sums, paged_memory);
+        multithreadedRandomAccessSum<64, 8, false>(sums, paged_memory);
+        multithreadedRandomAccessSum<64, 16, false>(sums, paged_memory);
+        multithreadedRandomAccessSum<64, 32, false>(sums, paged_memory);
+        std::println("= ---------------------------------------------------------------------------------------------------------------- =");
+    }
+
+    // one thread lanes
+    multithreadedRandomAccessSum<1, 1, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<1, 2, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<1, 4, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<1, 8, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<1, 16, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<1, 32, true>(sums, non_paged_memory);
+
+    std::println("= ---------------------------------------------------------------------------------------------------------------- =");
+
+    // two thread lanes
+    multithreadedRandomAccessSum<2, 1, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<2, 2, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<2, 4, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<2, 8, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<2, 16, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<2, 32, true>(sums, non_paged_memory);
+    std::println("= ---------------------------------------------------------------------------------------------------------------- =");
+    
+    // four thread lanes
+    multithreadedRandomAccessSum<4, 1, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<4, 2, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<4, 4, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<4, 8, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<4, 16, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<4, 32, true>(sums, non_paged_memory);
+    std::println("= ---------------------------------------------------------------------------------------------------------------- =");
+
+    // eight thread lanes
+    multithreadedRandomAccessSum<8, 1, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<8, 2, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<8, 4, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<8, 8, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<8, 16, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<8, 32, true>(sums, non_paged_memory);
+    std::println("= ---------------------------------------------------------------------------------------------------------------- =");
+
+    // sixteen thread lanes
+    multithreadedRandomAccessSum<16, 1, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<16, 2, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<16, 4, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<16, 8, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<16, 16, true>(sums, non_paged_memory);
+    multithreadedRandomAccessSum<16, 32, true>(sums, non_paged_memory);
+    std::println("= ---------------------------------------------------------------------------------------------------------------- =");
+
+    if (cpu_info.threads > 16) {
+        // thirty-two thread lanes
+        multithreadedRandomAccessSum<32, 1, true>(sums, non_paged_memory);
+        multithreadedRandomAccessSum<32, 2, true>(sums, non_paged_memory);
+        multithreadedRandomAccessSum<32, 4, true>(sums, non_paged_memory);
+        multithreadedRandomAccessSum<32, 8, true>(sums, non_paged_memory);
+        multithreadedRandomAccessSum<32, 16, true>(sums, non_paged_memory);
+        multithreadedRandomAccessSum<32, 32, true>(sums, non_paged_memory);
+        std::println("= ---------------------------------------------------------------------------------------------------------------- =");
+
+        // sixty-four thread lanes
+        multithreadedRandomAccessSum<64, 1, true>(sums, non_paged_memory);
+        multithreadedRandomAccessSum<64, 2, true>(sums, non_paged_memory);
+        multithreadedRandomAccessSum<64, 4, true>(sums, non_paged_memory);
+        multithreadedRandomAccessSum<64, 8, true>(sums, non_paged_memory);
+        multithreadedRandomAccessSum<64, 16, true>(sums, non_paged_memory);
+        multithreadedRandomAccessSum<64, 32, true>(sums, non_paged_memory);
+    }
 
     uint64_t aggr{ 0 };
     for (const auto s : sums)

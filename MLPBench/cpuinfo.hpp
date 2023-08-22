@@ -4,6 +4,7 @@
 #include <array>
 #include <intrin.h>
 #include <thread>
+#include <string>
 #include <expected>
 
 // Based on: https://github.com/cklutz/mcoreinfo/blob/master/sysinfo/CpuCapabilities.cs
@@ -16,6 +17,7 @@ class InstructionSet
 public:
     // Hyperthreading Enabled
     static bool HTT() { return CPU_Rep.f_1_EDX_[28]; };
+    static std::string Brand() { return CPU_Rep.brand_; };
 
 private:
     static const InstructionSet_Internal CPU_Rep;
@@ -24,7 +26,7 @@ private:
     {
     public:
         InstructionSet_Internal()
-            : f_1_EDX_{ 0 }, data_{}
+            : f_1_EDX_{ 0 }, data_{}, extdata_{}, brand_{}
         {
             //int cpuInfo[4] = {-1};
             std::array<int, 4> cpui{};
@@ -32,7 +34,7 @@ private:
             // Calling __cpuid with 0x0 as the function_id argument
             // gets the number of the highest valid function ID.
             __cpuid(cpui.data(), 0);
-            const auto nIds_{ cpui[0] };
+            auto nIds_{ cpui[0] };
 
             for (int i = 0; i <= nIds_; ++i)
             {
@@ -45,10 +47,36 @@ private:
             {
                 f_1_EDX_ = data_[1][3];
             }
+
+            // Calling __cpuid with 0x80000000 as the function_id argument
+            // gets the number of the highest valid extended ID.
+            cpui.fill(0);
+            __cpuid(cpui.data(), 0x80000000);
+            nIds_ = cpui[0];
+
+            char brand[0x40];
+            memset(brand, 0, sizeof(brand));
+
+            for (int i = 0x80000000; i <= nIds_; ++i)
+            {
+                __cpuidex(cpui.data(), i, 0);
+                extdata_.push_back(cpui);
+            }
+
+            // Interpret CPU brand string if reported
+            if (nIds_ >= 0x80000004)
+            {
+                memcpy(brand, extdata_[2].data(), sizeof(cpui));
+                memcpy(brand + 16, extdata_[3].data(), sizeof(cpui));
+                memcpy(brand + 32, extdata_[4].data(), sizeof(cpui));
+                brand_ = brand;
+            }
         };
 
         std::bitset<32> f_1_EDX_;
         std::vector<std::array<int, 4>> data_;
+        std::vector<std::array<int, 4>> extdata_;
+        std::string brand_;
     };
 };
 
@@ -59,11 +87,13 @@ struct CPUThreadInfo {
     uint32_t cores{ 0 };
     uint32_t threads{ 0 };
     bool htt{ false };
+    std::string model{};
 
     explicit CPUThreadInfo()
         : cores(InstructionSet::HTT() ? std::thread::hardware_concurrency() / 2 : std::thread::hardware_concurrency()),
         threads(std::thread::hardware_concurrency()),
-        htt(InstructionSet::HTT()) {}
+        htt(InstructionSet::HTT()),
+        model(InstructionSet::Brand()) {}
 
     std::expected<std::pair<uint32_t, uint32_t>, bool> logicalCoresIdxs(const uint32_t phys_core_idx) {
         if (phys_core_idx > cores) {
