@@ -138,6 +138,8 @@
   <ItemGroup>
     <ClInclude Include="memoryinfo.hpp" />
     <ClInclude Include="cpuinfo.hpp" />
+    <ClInclude Include="msr.hpp" />
+    <ClInclude Include="threadpool.hpp" />
     <ClInclude Include="virtualmem.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

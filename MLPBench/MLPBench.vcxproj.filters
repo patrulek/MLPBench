@@ -29,5 +29,11 @@
     <ClInclude Include="memoryinfo.hpp">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="msr.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="threadpool.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

@@ -10,9 +10,11 @@
 #include "memoryinfo.hpp"
 #include "cpuinfo.hpp"
 #include "virtualmem.hpp"
+#include "threadpool.hpp"
 
 constexpr size_t Memory_Size{ 2'147'483'648 }; // 2GB
 constexpr size_t Elem_Count{ Memory_Size / sizeof(uint64_t) };
+constexpr uint32_t Random_Rounds{ 4 };
 constexpr size_t Min_Elem{ 1 };
 constexpr size_t Max_Elem{ Elem_Count - 1 };
 constexpr uint32_t page_size{ 4096 };
@@ -22,6 +24,10 @@ double bwThreads1{ 0 };
 double bwLinear{ 0 };
 
 using aligned_uint64_t = uint64_t alignas(page_size);
+
+// Globals
+MemoryInfo mem_info{};
+CPUThreadInfo cpu_info{};
 
 template <uint64_t Threads = 1, uint64_t Lanes = 1, bool Huge_Pages = false>
 void multithreadedRandomAccessSum(std::array<uint64_t, 65>& sums, std::span<uint64_t> memory) {
@@ -49,114 +55,113 @@ void multithreadedRandomAccessSum(std::array<uint64_t, 65>& sums, std::span<uint
 
     std::array<std::thread, Threads> pool{};
 
-    const auto start_time = std::chrono::high_resolution_clock::now();
     const auto foonc = [&step](std::array<uint64_t, 65>& sums, std::span<uint64_t> memory) {
-        for (uint32_t i = 0; i < step; ++i) {
-            if constexpr (Lanes > 32) {
-                sums[33] = memory[sums[33]];
-                sums[34] = memory[sums[34]];
-                sums[35] = memory[sums[35]];
-                sums[36] = memory[sums[36]];
-                sums[37] = memory[sums[37]];
-                sums[38] = memory[sums[38]];
-                sums[39] = memory[sums[39]];
-                sums[40] = memory[sums[40]];
-                sums[41] = memory[sums[41]];
-                sums[42] = memory[sums[42]];
-                sums[43] = memory[sums[43]];
-                sums[44] = memory[sums[44]];
-                sums[45] = memory[sums[45]];
-                sums[46] = memory[sums[46]];
-                sums[47] = memory[sums[47]];
-                sums[48] = memory[sums[48]];
-                sums[49] = memory[sums[49]];
-                sums[50] = memory[sums[50]];
-                sums[51] = memory[sums[51]];
-                sums[52] = memory[sums[52]];
-                sums[53] = memory[sums[53]];
-                sums[54] = memory[sums[54]];
-                sums[55] = memory[sums[55]];
-                sums[56] = memory[sums[56]];
-                sums[57] = memory[sums[57]];
-                sums[58] = memory[sums[58]];
-                sums[59] = memory[sums[59]];
-                sums[60] = memory[sums[60]];
-                sums[61] = memory[sums[61]];
-                sums[62] = memory[sums[62]];
-                sums[63] = memory[sums[63]];
-                sums[64] = memory[sums[64]];
-            }
+        for (uint32_t r = 0; r < Random_Rounds; ++r) {
+            for (uint32_t i = 0; i < step; ++i) {
+                if constexpr (Lanes > 32) {
+                    sums[33] = memory[sums[33]];
+                    sums[34] = memory[sums[34]];
+                    sums[35] = memory[sums[35]];
+                    sums[36] = memory[sums[36]];
+                    sums[37] = memory[sums[37]];
+                    sums[38] = memory[sums[38]];
+                    sums[39] = memory[sums[39]];
+                    sums[40] = memory[sums[40]];
+                    sums[41] = memory[sums[41]];
+                    sums[42] = memory[sums[42]];
+                    sums[43] = memory[sums[43]];
+                    sums[44] = memory[sums[44]];
+                    sums[45] = memory[sums[45]];
+                    sums[46] = memory[sums[46]];
+                    sums[47] = memory[sums[47]];
+                    sums[48] = memory[sums[48]];
+                    sums[49] = memory[sums[49]];
+                    sums[50] = memory[sums[50]];
+                    sums[51] = memory[sums[51]];
+                    sums[52] = memory[sums[52]];
+                    sums[53] = memory[sums[53]];
+                    sums[54] = memory[sums[54]];
+                    sums[55] = memory[sums[55]];
+                    sums[56] = memory[sums[56]];
+                    sums[57] = memory[sums[57]];
+                    sums[58] = memory[sums[58]];
+                    sums[59] = memory[sums[59]];
+                    sums[60] = memory[sums[60]];
+                    sums[61] = memory[sums[61]];
+                    sums[62] = memory[sums[62]];
+                    sums[63] = memory[sums[63]];
+                    sums[64] = memory[sums[64]];
+                }
 
-            if constexpr (Lanes > 16) {
-                sums[17] = memory[sums[17]];
-                sums[18] = memory[sums[18]];
-                sums[19] = memory[sums[19]];
-                sums[20] = memory[sums[20]];
-                sums[21] = memory[sums[21]];
-                sums[22] = memory[sums[22]];
-                sums[23] = memory[sums[23]];
-                sums[24] = memory[sums[24]];
-                sums[25] = memory[sums[25]];
-                sums[26] = memory[sums[26]];
-                sums[27] = memory[sums[27]];
-                sums[28] = memory[sums[28]];
-                sums[29] = memory[sums[29]];
-                sums[30] = memory[sums[30]];
-                sums[31] = memory[sums[31]];
-                sums[32] = memory[sums[32]];
-            }
+                if constexpr (Lanes > 16) {
+                    sums[17] = memory[sums[17]];
+                    sums[18] = memory[sums[18]];
+                    sums[19] = memory[sums[19]];
+                    sums[20] = memory[sums[20]];
+                    sums[21] = memory[sums[21]];
+                    sums[22] = memory[sums[22]];
+                    sums[23] = memory[sums[23]];
+                    sums[24] = memory[sums[24]];
+                    sums[25] = memory[sums[25]];
+                    sums[26] = memory[sums[26]];
+                    sums[27] = memory[sums[27]];
+                    sums[28] = memory[sums[28]];
+                    sums[29] = memory[sums[29]];
+                    sums[30] = memory[sums[30]];
+                    sums[31] = memory[sums[31]];
+                    sums[32] = memory[sums[32]];
+                }
 
-            if constexpr (Lanes > 8) {
-                sums[9] = memory[sums[9]];
-                sums[10] = memory[sums[10]];
-                sums[11] = memory[sums[11]];
-                sums[12] = memory[sums[12]];
-                sums[13] = memory[sums[13]];
-                sums[14] = memory[sums[14]];
-                sums[15] = memory[sums[15]];
-                sums[16] = memory[sums[16]];
-            }
+                if constexpr (Lanes > 8) {
+                    sums[9] = memory[sums[9]];
+                    sums[10] = memory[sums[10]];
+                    sums[11] = memory[sums[11]];
+                    sums[12] = memory[sums[12]];
+                    sums[13] = memory[sums[13]];
+                    sums[14] = memory[sums[14]];
+                    sums[15] = memory[sums[15]];
+                    sums[16] = memory[sums[16]];
+                }
 
-            if constexpr (Lanes > 4) {
-                sums[5] = memory[sums[5]];
-                sums[6] = memory[sums[6]];
-                sums[7] = memory[sums[7]];
-                sums[8] = memory[sums[8]];
-            }
+                if constexpr (Lanes > 4) {
+                    sums[5] = memory[sums[5]];
+                    sums[6] = memory[sums[6]];
+                    sums[7] = memory[sums[7]];
+                    sums[8] = memory[sums[8]];
+                }
 
-            if constexpr (Lanes > 2) {
-                sums[3] = memory[sums[3]];
-                sums[4] = memory[sums[4]];
-            }
+                if constexpr (Lanes > 2) {
+                    sums[3] = memory[sums[3]];
+                    sums[4] = memory[sums[4]];
+                }
 
-            if constexpr (Lanes > 1) {
-                sums[2] = memory[sums[2]];
-            }
+                if constexpr (Lanes > 1) {
+                    sums[2] = memory[sums[2]];
+                }
 
-            sums[1] = memory[sums[1]];
+                sums[1] = memory[sums[1]];
+            }
         }
     };
 
-    // start all threads
-    for (uint32_t t = 1; t < Threads; ++t) {
-        pool[t] = std::thread(foonc, std::ref(sums_per_thread[t]), memory);
-    }
+    ThreadPool<Threads - 1> thread_pool(cpu_info);
+    thread_pool.setupFunction(foonc, std::span<std::array<uint64_t, 65>>(sums_per_thread.begin() + 1, sums_per_thread.end()), memory);
+
+    const auto start_time = std::chrono::high_resolution_clock::now();
+    thread_pool.unlockThreads();
 
     foonc(sums_per_thread[0], memory);
 
-    // join all threads
-    for (uint32_t t = 1; t < Threads; ++t) {
-        pool[t].join();
-    }
+    thread_pool.join();
 
     const auto end_time = std::chrono::high_resolution_clock::now();
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() / 1000.0;
-    const auto bandwidth = Memory_Size / elapsed / 1'000'000.0;
+    const auto bandwidth = Random_Rounds * Memory_Size / elapsed / 1'000'000.0;
     if (Threads == 1 && Lanes == 1 && bwLane1 == 0.0) {
         bwLane1 = bandwidth;
     }
     const auto speedup = bandwidth / bwLane1;
-    const auto nshit = 1'000'000'000 * elapsed / Elem_Count;
+    const auto nshit = 1'000'000'000 * elapsed / Elem_Count / Random_Rounds;
     const auto eff = 100.0 * bandwidth / bwLinear;
 
     std::println("{:>12s}     {:12d}     {:16d}     {:8.3f}     {:9.1f}     {:7.2f}     {:6.1f}     {:9.1f}", Huge_Pages, Threads, Lanes, elapsed, bandwidth, speedup, nshit, eff);
@@ -168,26 +173,21 @@ void multithreadedRandomAccessSum(std::array<uint64_t, 65>& sums, std::span<uint
     }
 }
 
-void sattolo(std::span<uint64_t, Elem_Count> memory) {
-    std::random_device rd;
-    std::mt19937_64 g(rd());
-
+void sattolo(std::span<uint64_t, Elem_Count> memory, std::mt19937_64& gen) {
     auto i{ Elem_Count };
     while (i-- > 1) {
         std::uniform_int_distribution<uint64_t> dist{ 0, i - 1 };
-        const uint64_t swap_idx{ dist(g) };
+        const uint64_t swap_idx{ dist(gen) };
         std::swap(memory[i], memory[swap_idx]);
     }
 }
 
-// Globals
-MemoryInfo mem_info{};
-CPUThreadInfo cpu_info{};
-
-void calculateSum(uint64_t& total_sum, const std::span<uint64_t> data) {
+void calculateSum(const std::span<uint64_t> data, uint64_t& total_sum, const uint32_t rounds) {
     uint64_t sum{ 0 };
-    for (const auto& v : data) {
-        sum += v;
+    for (uint32_t r = 0; r < rounds; ++r) {
+        for (const auto& v : data) {
+            sum += v;
+        }
     }
 
     total_sum += sum;
@@ -197,27 +197,25 @@ template<uint32_t Rounds, uint32_t Threads = 1, bool Huge_Pages = false>
 uint64_t sequentialAccessSum(std::span<uint64_t, Elem_Count> memory) {
     static_assert(Threads == 1 || (Threads >= 2 && Threads <= 64 && Threads % 2 == 0));
 
-    std::array<std::thread, Threads> pool{};
     constexpr uint64_t step{ Elem_Count / Threads };
     constexpr uint64_t Total_Bytes{ Rounds * Memory_Size };
 
-    auto start_time{ std::chrono::high_resolution_clock::now() };
-    uint64_t sum{ 0 };
-    for (uint32_t r = 0; r < Rounds; ++r) {
-        sum = 0;
-        
-        // start all threads
-        for (uint32_t t = 1; t < Threads; ++t) {
-            pool[t] = std::thread(calculateSum, std::ref(sum), memory.subspan(t * step, step));
-        }
-
-        calculateSum(sum, memory.subspan(0, step));
-
-        // join all threads
-        for (uint32_t t = 1; t < Threads; ++t) {
-            pool[t].join();
-        }
+    std::array<std::span<uint64_t>, Threads - 1> memory_per_thread{};
+    for (uint32_t t = 1; t < Threads; ++t) {
+        memory_per_thread[t - 1] = memory.subspan(step * t, step);
     }
+
+    uint64_t sum{ 0 };
+    ThreadPool<Threads - 1> thread_pool(cpu_info);
+    thread_pool.setupFunction(calculateSum, memory_per_thread, sum, Rounds);
+
+    const auto start_time = std::chrono::high_resolution_clock::now();
+    thread_pool.unlockThreads();
+
+    calculateSum(memory.subspan(0, step), sum, Rounds);
+
+    thread_pool.join();
+
     auto end_time{ std::chrono::high_resolution_clock::now() };
     auto elapsed{ std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() / 1000.0 };
     auto bandwidth{ Total_Bytes / elapsed / 1'000'000.0 };
@@ -231,16 +229,24 @@ uint64_t sequentialAccessSum(std::span<uint64_t, Elem_Count> memory) {
 
     if (mem_info.bandwidth > 0.0) {
         const auto eff = 100.0 * bandwidth / (mem_info.bandwidth * 1'000);
-        std::println("{:>12s}     {:14d}     {:8.3f}     {:9.1f}     {:7.2f}     {:6.3f}     {:9.1f}", Huge_Pages, Threads, elapsed, bandwidth, speedup, nshit, eff);
+        std::println("{:>12s}     {:12d}     {:8.3f}     {:9.1f}     {:7.2f}     {:6.3f}     {:9.1f}", Huge_Pages, Threads, elapsed, bandwidth, speedup, nshit, eff);
     } else {
-        std::println("{:>12s}     {:14d}     {:8.3f}     {:9.1f}     {:7.2f}     {:6.3f}     {:>9s}", Huge_Pages, Threads, elapsed, bandwidth, speedup, nshit, "N/A");
+        std::println("{:>12s}     {:12d}     {:8.3f}     {:9.1f}     {:7.2f}     {:6.3f}     {:>9s}", Huge_Pages, Threads, elapsed, bandwidth, speedup, nshit, "N/A");
     }
 
     return sum;
 }
 
+struct Options {
+    bool random;
+};
+
 int main()
 {
+    Options flags{
+        .random{ false },
+    };
+
     const auto bstart_time{ std::chrono::high_resolution_clock::now() };
 
     // Print system info
@@ -251,6 +257,9 @@ int main()
     }
 
     std::println("CPU Info ({}):\n * Physical cores: {:d}\n * Logical cores: {:d}\n * Hyperthreading: {:s}\n", cpu_info.model, cpu_info.cores, cpu_info.threads, cpu_info.htt);
+
+    // always set main thread to the last core
+    setThreadAffinity(cpu_info.cores, cpu_info.threads, cpu_info.cores - 1);
 
     // Allocate non-paged memory
     std::println("Allocating non-paged (locked) memory of size {:d} bytes with system decided page sizes...", Memory_Size);
@@ -294,8 +303,13 @@ int main()
         paged_memory[i] = i;
     }
 
-    sattolo(non_paged_memory);
-    sattolo(paged_memory);
+    auto seed{ 2137 };
+    if (flags.random) {
+        seed = std::random_device{}();
+    }
+    std::mt19937_64 gen(seed);
+    sattolo(non_paged_memory, gen);
+    std::copy(non_paged_memory.begin(), non_paged_memory.end(), paged_memory.begin());
 
     // Veryfing data
     std::println("Verifying sequential/random access and paged/non-paged access sums...");
@@ -339,10 +353,11 @@ int main()
     sums[32] = sequentialAccessSum<Rounds, 32, true>(non_paged_memory);
 
     // Calculating bandwidth for random access
-    std::println("\nCalculating time for random access (single round)...");
+    std::println("\nCalculating time for random access ({:d} rounds)...", Random_Rounds);
     std::println("--------------------------------------------------------------------------------------------------------------------");
     std::println("- huge pages --- # of threads --- lanes per thread --- time (s) --- bandwidth --- speedup --- ns/hit --- % eff seq -");
     std::println("--------------------------------------------------------------------------------------------------------------------");
+
 
     // one thread lanes
     multithreadedRandomAccessSum<1, 1, false>(sums, paged_memory);
