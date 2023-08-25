@@ -4,6 +4,10 @@
 
 This project is non-1:1 copy of [Lemire's testingmlp](https://github.com/lemire/testingmlp), but for Windows specifically.
 
+:warning: WORK IN PROGRESS :warning:
+
+This project is not finished yet. It may contain bugs, probably won't support your setup, and the code is 120% messy.
+
 ## Build and run
 
 To build this project from sources most recent Visual Studio (at least 17.7) is needed.
