@@ -20,19 +20,19 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="virtualmem.hpp">
-      <Filter>Source Files</Filter>
-    </ClInclude>
-    <ClInclude Include="cpuinfo.hpp">
-      <Filter>Source Files</Filter>
-    </ClInclude>
-    <ClInclude Include="memoryinfo.hpp">
-      <Filter>Source Files</Filter>
-    </ClInclude>
     <ClInclude Include="msr.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="threadpool.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="cpuinfo.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="memoryinfo.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="virtualmem.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
