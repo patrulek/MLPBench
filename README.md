@@ -14,6 +14,8 @@ To build this project from sources most recent Visual Studio (at least 17.7) is 
 
 This project uses [large pages](https://learn.microsoft.com/en-us/windows/win32/memory/large-page-support) which are not allowed by default for any user. To enable it follow instructions from [this link](https://learn.microsoft.com/en-us/sql/database-engine/configure-windows/enable-the-lock-pages-in-memory-option-windows?view=sql-server-ver16).
 
+Admin privileges are required to run this program properly (to manipulate MSR registers).
+
 ### Troubleshooting
 
 In a case of such error:
@@ -229,7 +231,6 @@ Total benchmark time: 4516.004s
 
 ## TODOs
 
-* Compare times with and without hardware prefetching
 * Add benchmarks for SSD data access
 * Add verbose/non-verbose mode
 * Add benchmark granularity (with --flags)
